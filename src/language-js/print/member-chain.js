@@ -5,6 +5,7 @@ const {
   getLast,
   isNextLineEmptyAfterIndex,
   getNextNonSpaceNonCommentCharacterIndex,
+  hasNewlineInRange,
 } = require("../../common/util.js");
 const pathNeedsParens = require("../needs-parens.js");
 const {
@@ -19,7 +20,7 @@ const {
   CommentCheckFlags,
   isNextLineEmpty,
 } = require("../utils/index.js");
-const { locEnd } = require("../loc.js");
+const { locEnd, locStart } = require("../loc.js");
 
 const {
   builders: {
@@ -327,6 +328,13 @@ function printMemberChain(path, options, print) {
   const cutoff = shouldMerge ? 3 : 2;
   const flatGroups = groups.flat();
 
+  // MOD: Respect the original line break after the first line.
+  const shouldBreak = hasNewlineInRange(
+    options.originalText,
+    locStart(node),
+    locEnd(flatGroups[1].node)
+  );
+
   const nodeHasComment =
     flatGroups
       .slice(1, -1)
@@ -385,6 +393,7 @@ function printMemberChain(path, options, print) {
   //  * any group but the last one has a hard line,
   //  * the last call's arguments have a hard line and other calls have non-trivial arguments.
   if (
+    shouldBreak ||
     nodeHasComment ||
     (callExpressions.length > 2 &&
       callExpressions.some(
