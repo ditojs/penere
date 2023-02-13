@@ -268,7 +268,7 @@ function printPathNoParens(path, options, print, args) {
       return printVariableDeclarator(path, options, print);
     case "BinaryExpression":
     case "LogicalExpression":
-      return printBinaryishExpression(path, options, print);
+      return printBinaryishExpression(path, options, print, args);
     case "AssignmentPattern":
       return [print("left"), " = ", print("right")];
     case "OptionalMemberExpression":

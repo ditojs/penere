@@ -2,7 +2,17 @@
 
 const { isNonEmptyArray, getStringWidth } = require("../../common/util.js");
 const {
-  builders: { line, group, indent, indentIfBreak, lineSuffixBoundary },
+  builders: {
+    line,
+    softline,
+    hardline,
+    group,
+    conditionalGroup,
+    indent,
+    ifBreak,
+    indentIfBreak,
+    lineSuffixBoundary,
+  },
   utils: { cleanDoc, willBreak, canBreak },
 } = require("../../document/index.js");
 const {
@@ -36,8 +46,19 @@ function printAssignment(
 
   switch (layout) {
     // First break after operator, then the sides are broken independently on their own lines
-    case "break-after-operator":
-      return group([group(leftDoc), operator, group(indent([line, rightDoc]))]);
+    case "break-after-operator": {
+      // // MOD: Wrap multi-line assignments in parenthesis.
+      return group([
+        group(leftDoc),
+        operator,
+        group([
+          ifBreak(" (", " "),
+          indent([softline, rightDoc]),
+          softline,
+          ifBreak(")"),
+        ]),
+      ]);
+    }
 
     // First break right-hand side, then left-hand side
     case "never-break-after-operator":
@@ -45,14 +66,26 @@ function printAssignment(
 
     // First break right-hand side, then after operator
     case "fluid": {
+      const rightNode = path.getValue()[rightPropertyName];
       const groupId = Symbol("assignment");
-      return group([
+      const grouped = group([
         group(leftDoc),
         operator,
         group(indent(line), { id: groupId }),
         lineSuffixBoundary,
         indentIfBreak(rightDoc, { groupId }),
       ]);
+      return ["Literal", "RegExpLiteral"].includes(rightNode.type)
+        ? grouped
+        : conditionalGroup([
+            grouped,
+
+            group([
+              group(leftDoc),
+              operator,
+              group([" (", indent([hardline, rightDoc]), hardline, ")"]),
+            ]),
+          ]);
     }
 
     case "break-lhs":

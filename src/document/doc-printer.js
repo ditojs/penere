@@ -575,7 +575,45 @@ function printDocToString(doc, options) {
     };
   }
 
-  return { formatted: out.join("") };
+  const binaryishExp = new RegExp(
+    `(${binaryishOperators})${newLine}\\s*(\\(${newLine})`,
+    "g"
+  );
+  const formatted = out.join("").replace(binaryishExp, "$1 $2");
+
+  return { formatted };
 }
+
+const binaryishOperators = [
+  // LogicalOperator
+  "&&",
+  "||",
+
+  // BinaryOperator
+  "==",
+  "!=",
+  "===",
+  "!==",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "<<",
+  ">>",
+  ">>>",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "&",
+  "|",
+  "^",
+  "in",
+  "instanceof",
+  "..",
+]
+  .map((operator) => `${operator.replace(/[$()*+./?[\\\]^{|}-]/g, "\\$&")}`)
+  .join("|");
 
 module.exports = { printDocToString };

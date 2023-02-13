@@ -1,9 +1,18 @@
 "use strict";
 
 const { printComments } = require("../../main/comments.js");
-const { getLast } = require("../../common/util.js");
+const { getLast, hasNewlineInRange } = require("../../common/util.js");
 const {
-  builders: { join, line, softline, group, indent, align, indentIfBreak },
+  builders: {
+    join,
+    line,
+    softline,
+    group,
+    indent,
+    align,
+    ifBreak,
+    indentIfBreak,
+  },
   utils: { cleanDoc, getDocParts, isConcat },
 } = require("../../document/index.js");
 const {
@@ -18,11 +27,13 @@ const {
   isObjectProperty,
   isEnabledHackPipeline,
 } = require("../utils/index.js");
+const { locStart, locEnd } = require("../loc.js");
+const needsParens = require("../needs-parens.js");
 
 /** @typedef {import("../../document").Doc} Doc */
 
 let uid = 0;
-function printBinaryishExpression(path, options, print) {
+function printBinaryishExpression(path, options, print, args) {
   const node = path.getValue();
   const parent = path.getParentNode();
   const parentParent = path.getParentNode(1);
@@ -31,16 +42,24 @@ function printBinaryishExpression(path, options, print) {
     (parent.type === "IfStatement" ||
       parent.type === "WhileStatement" ||
       parent.type === "SwitchStatement" ||
-      parent.type === "DoWhileStatement");
+      parent.type === "DoWhileStatement" ||
+      // MOD: We add parenthesis to variable declarations with breaks.
+      parent.type === "VariableDeclarator");
   const isHackPipeline =
     isEnabledHackPipeline(options) && node.operator === "|>";
+
+  const level = args?.level ?? 0;
+  const enforceBreakLevels = args?.enforceBreakLevels ?? {};
 
   const parts = printBinaryishExpressions(
     path,
     print,
     options,
     /* isNested */ false,
-    isInsideParenthesis
+    isInsideParenthesis,
+    level + 1,
+    enforceBreakLevels,
+    args
   );
 
   //   if (
@@ -72,9 +91,19 @@ function printBinaryishExpression(path, options, print) {
   if (
     (isCallExpression(parent) && parent.callee === node) ||
     parent.type === "UnaryExpression" ||
+    // MOD: Break between parens of binaryish expressions as well
+    isBinaryish(parent) ||
     (isMemberExpression(parent) && !parent.computed)
   ) {
-    return group([indent([softline, ...parts]), softline]);
+    // MOD: Enforce parens when going multiline, but do respect the result of
+    // `needsParens` to prevent double-parens.
+    const addParens = isBinaryish(parent) && !needsParens(path, options);
+    const indented = [indent([softline, ...parts]), softline];
+    return group(
+      addParens //
+        ? [ifBreak("("), ...indented, ifBreak(")")]
+        : indented
+    );
   }
 
   // Avoid indenting sub-expressions in some cases where the first sub-expression is already
@@ -149,13 +178,17 @@ function printBinaryishExpression(path, options, print) {
   const groupId = Symbol("logicalChain-" + ++uid);
 
   const chain = group(
-    [
-      // Don't include the initial expression in the indentation
-      // level. The first item is guaranteed to be the first
-      // left-most expression.
-      ...headParts,
-      indent(rest),
-    ],
+    // MOD: Don't indent the any part of the chain, since we now break between
+    // parens of logical expressions as well.
+    isBinaryish(parent)
+      ? parts
+      : [
+          // Don't include the initial expression in the indentation
+          // level. The first item is guaranteed to be the first
+          // left-most expression.
+          ...headParts,
+          indent(rest),
+        ],
     { id: groupId }
   );
 
@@ -180,13 +213,40 @@ function printBinaryishExpressions(
   print,
   options,
   isNested,
-  isInsideParenthesis
+  isInsideParenthesis,
+  level,
+  enforceBreakLevels,
+  args
 ) {
   const node = path.getValue();
 
+  enforceBreakLevels = {
+    ...enforceBreakLevels,
+    [level]:
+      enforceBreakLevels[level] ||
+      hasNewlineInRange(options.originalText, locStart(node), locEnd(node)),
+  };
+
+  const enforceBreak = enforceBreakLevels[level];
+
+  const wrapParts = (parts) => {
+    if (enforceBreak && parts.length > 0) {
+      // Move the comment inside the parentheses.
+      const printed = cleanDoc(printComments(path, parts, options));
+      const printedParts =
+        isConcat(printed) || printed.type === "fill"
+          ? getDocParts(printed)
+          : [printed];
+      // eslint-disable-next-line prettier-internal-rules/no-node-comments
+      delete node.comments;
+      return [group(printedParts, { shouldBreak: enforceBreak })];
+    }
+    return parts;
+  };
+
   // Simply print the node normally.
   if (!isBinaryish(node)) {
-    return [group(print())];
+    return wrapParts([group(print())]);
   }
 
   /** @type{Doc[]} */
@@ -212,15 +272,27 @@ function printBinaryishExpressions(
           print,
           options,
           /* isNested */ true,
-          isInsideParenthesis
+          isInsideParenthesis,
+          level,
+          enforceBreakLevels,
+          args
         ),
       "left"
     );
   } else {
-    parts.push(group(print("left")));
+    parts.push(
+      wrapParts([
+        group(
+          print("left", {
+            level: level + 1,
+            enforceBreakLevels,
+          })
+        ),
+      ])
+    );
   }
 
-  const shouldInline = shouldInlineLogicalExpression(node);
+  const shouldInline = !enforceBreak && shouldInlineLogicalExpression(node);
   const lineBeforeOperator =
     (node.operator === "|>" ||
       node.type === "NGPipeExpression" ||
@@ -245,22 +317,32 @@ function printBinaryishExpressions(
   /** @type {Doc} */
   let right;
   if (shouldInline) {
-    right = [operator, " ", print("right"), rightSuffix];
+    const rightContent = print("right", {
+      enforceBreakLevels,
+      level,
+    });
+    right = [operator, " ", rightContent, rightSuffix];
   } else {
     const isHackPipeline = isEnabledHackPipeline(options) && operator === "|>";
     const rightContent = isHackPipeline
       ? path.call(
-          (left) =>
+          (right) =>
             printBinaryishExpressions(
-              left,
+              right,
               print,
               options,
               /* isNested */ true,
-              isInsideParenthesis
+              isInsideParenthesis,
+              level,
+              enforceBreakLevels,
+              args
             ),
           "right"
         )
-      : print("right");
+      : print("right", {
+          level,
+          enforceBreakLevels,
+        });
     right = [
       lineBeforeOperator ? line : "",
       operator,
@@ -279,7 +361,7 @@ function printBinaryishExpressions(
   );
   const shouldGroup =
     shouldBreak ||
-    (!(isInsideParenthesis && node.type === "LogicalExpression") &&
+    (!(isInsideParenthesis && isBinaryish(node)) &&
       parent.type !== node.type &&
       node.left.type !== node.type &&
       node.right.type !== node.type);
