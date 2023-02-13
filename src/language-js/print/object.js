@@ -62,6 +62,8 @@ function printObject(path, options, print) {
     node.type === "TSInterfaceBody" ||
     isFlowInterfaceLikeBody ||
     (node.type === "ObjectPattern" &&
+      // MOD: Allow control of line-breaks in all of these situation in the same
+      // way as on normal objects:
       parent.type !== "FunctionDeclaration" &&
       parent.type !== "FunctionExpression" &&
       parent.type !== "ArrowFunctionExpression" &&
@@ -76,7 +78,7 @@ function printObject(path, options, print) {
           (property.value.type === "ObjectPattern" ||
             property.value.type === "ArrayPattern")
       )) ||
-    (node.type !== "ObjectPattern" &&
+    (/* node.type !== "ObjectPattern" && */ // MOD: for destructuring assignments
       firstProperty &&
       hasNewlineInRange(
         options.originalText,
