@@ -286,7 +286,8 @@ function printTernary(path, options, print) {
       consequentNode.type === node.type ? ifBreak("", ")") : "",
       line,
       ": ",
-      alternateNode.type === node.type
+      // MOD: Always use ternary indentation.
+      alternateNode.type === node.type && !(options.indentTernary ?? true)
         ? print(alternateNodePropertyName)
         : align(2, print(alternateNodePropertyName)),
     ];
@@ -311,15 +312,23 @@ function printTernary(path, options, print) {
     getComments(consequentNode),
     getComments(alternateNode),
   ].flat();
-  const shouldBreak = comments.some(
-    (comment) =>
-      isBlockComment(comment) &&
+  const shouldBreak =
+    comments.some(
+      (comment) =>
+        isBlockComment(comment) &&
+        hasNewlineInRange(
+          options.originalText,
+          locStart(comment),
+          locEnd(comment)
+        )
+    ) || // MOD: Break if consequent is moved to new line
+    (parent === firstNonConditionalParent &&
       hasNewlineInRange(
         options.originalText,
-        locStart(comment),
-        locEnd(comment)
-      )
-  );
+        locStart(node),
+        locStart(consequentNode)
+      ));
+
   const maybeGroup = (doc) =>
     parent === firstNonConditionalParent
       ? group(doc, { shouldBreak })
