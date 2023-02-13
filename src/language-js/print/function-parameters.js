@@ -1,6 +1,9 @@
 "use strict";
 
-const { getNextNonSpaceNonCommentCharacter } = require("../../common/util.js");
+const {
+  getNextNonSpaceNonCommentCharacter,
+  getLast,
+} = require("../../common/util.js");
 const { printDanglingComments } = require("../../main/comments.js");
 const {
   builders: { line, hardline, softline, group, indent, ifBreak },
@@ -157,29 +160,42 @@ function shouldHugFunctionParameters(node) {
     return false;
   }
   const parameters = getFunctionParameters(node);
-  if (parameters.length !== 1) {
+
+  // MOD: Allow function to hug multiple parameters if the last parameter is an
+  // object, essentially deploying the same rule as for function calls.
+  if (parameters.length === 0) {
     return false;
   }
-  const [parameter] = parameters;
+
+  function isHuggableParameter(parameter) {
+    return (
+      parameter &&
+      !hasComment(parameter) &&
+      (parameter.type === "ObjectPattern" ||
+        parameter.type === "ArrayPattern" ||
+        (parameter.type === "Identifier" &&
+          parameter.typeAnnotation &&
+          (parameter.typeAnnotation.type === "TypeAnnotation" ||
+            parameter.typeAnnotation.type === "TSTypeAnnotation") &&
+          isObjectType(parameter.typeAnnotation.typeAnnotation)) ||
+        (parameter.type === "FunctionTypeParam" &&
+          isObjectType(parameter.typeAnnotation)) ||
+        (parameter.type === "AssignmentPattern" &&
+          (parameter.left.type === "ObjectPattern" ||
+            parameter.left.type === "ArrayPattern") &&
+          (parameter.right.type === "Identifier" ||
+            (parameter.right.type === "ObjectExpression" &&
+              parameter.right.properties.length === 0) ||
+            (parameter.right.type === "ArrayExpression" &&
+              parameter.right.elements.length === 0))))
+    );
+  }
+
   return (
-    !hasComment(parameter) &&
-    (parameter.type === "ObjectPattern" ||
-      parameter.type === "ArrayPattern" ||
-      (parameter.type === "Identifier" &&
-        parameter.typeAnnotation &&
-        (parameter.typeAnnotation.type === "TypeAnnotation" ||
-          parameter.typeAnnotation.type === "TSTypeAnnotation") &&
-        isObjectType(parameter.typeAnnotation.typeAnnotation)) ||
-      (parameter.type === "FunctionTypeParam" &&
-        isObjectType(parameter.typeAnnotation)) ||
-      (parameter.type === "AssignmentPattern" &&
-        (parameter.left.type === "ObjectPattern" ||
-          parameter.left.type === "ArrayPattern") &&
-        (parameter.right.type === "Identifier" ||
-          (parameter.right.type === "ObjectExpression" &&
-            parameter.right.properties.length === 0) ||
-          (parameter.right.type === "ArrayExpression" &&
-            parameter.right.elements.length === 0))))
+    isHuggableParameter(getLast(parameters)) &&
+    parameters
+      .slice(0, -1)
+      .every((parameter) => !isHuggableParameter(parameter))
   );
 }
 
