@@ -283,7 +283,8 @@ function printTernary(path, options, print) {
       consequentNode.type === node.type ? ifBreak("", ")") : "",
       line,
       ": ",
-      alternateNode.type === node.type
+      // MOD: Use ternary indentation by default.
+      alternateNode.type === node.type && !(options.indentTernary ?? true)
         ? print(alternateNodePropertyName)
         : align(2, print(alternateNodePropertyName)),
     ];
@@ -301,22 +302,30 @@ function printTernary(path, options, print) {
   // We want a whole chain of ConditionalExpressions to all
   // break if any of them break. That means we should only group around the
   // outer-most ConditionalExpression.
-  const shouldBreak = [
-    consequentNodePropertyName,
-    alternateNodePropertyName,
-    ...testNodePropertyNames,
-  ].some((property) =>
-    hasComment(
-      node[property],
-      (comment) =>
-        isBlockComment(comment) &&
-        hasNewlineInRange(
-          options.originalText,
-          locStart(comment),
-          locEnd(comment)
-        )
-    )
-  );
+  const shouldBreak =
+    [
+      consequentNodePropertyName,
+      alternateNodePropertyName,
+      ...testNodePropertyNames,
+    ].some((property) =>
+      hasComment(
+        node[property],
+        (comment) =>
+          isBlockComment(comment) &&
+          hasNewlineInRange(
+            options.originalText,
+            locStart(comment),
+            locEnd(comment)
+          )
+      )
+    ) || // MOD: Break if consequent is moved to new line
+    (parent === firstNonConditionalParent &&
+      hasNewlineInRange(
+        options.originalText,
+        locStart(node),
+        locStart(consequentNode)
+      ));
+
   const maybeGroup = (doc) =>
     parent === firstNonConditionalParent
       ? group(doc, { shouldBreak })
