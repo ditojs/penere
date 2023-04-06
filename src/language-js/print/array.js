@@ -9,6 +9,7 @@ import {
 } from "../../document/builders.js";
 import { printDanglingComments } from "../../main/comments/print.js";
 import hasNewline from "../../utils/has-newline.js";
+import hasNewlineInRange from "../../utils/has-newline-in-range.js";
 import isNextLineEmptyAfterIndex from "../../utils/is-next-line-empty.js";
 import skipInlineComment from "../../utils/skip-inline-comment.js";
 import skipTrailingComment from "../../utils/skip-trailing-comment.js";
@@ -20,6 +21,7 @@ import {
   isNumericLiteral,
   isObjectExpression,
   isSignedNumericLiteral,
+  isStringLiteral,
   shouldPrintComma,
 } from "../utils/index.js";
 import { printOptionalToken } from "./misc.js";
@@ -86,24 +88,48 @@ function printArray(path, options, print) {
 
     const groupId = Symbol("array");
 
+    // MOD: Respect the original line break before the first and between the
+    // first and second element.
+    const firstElement = node.elements?.[0];
+    const secondElement = node.elements?.[1];
+    const firstBreak =
+      firstElement &&
+      hasNewlineInRange(
+        options.originalText,
+        locStart(node),
+        locStart(firstElement),
+      );
+    const secondBreak =
+      secondElement &&
+      hasNewlineInRange(
+        options.originalText,
+        locEnd(firstElement || node),
+        locStart(secondElement),
+      );
+
     const shouldBreak =
       !options.__inJestEach &&
-      elements.length > 1 &&
-      elements.every((element, i, elements) => {
-        const elementType = element?.type;
-        if (!isArrayExpression(element) && !isObjectExpression(element)) {
-          return false;
-        }
+      (firstBreak ||
+        (elements.length > 1 &&
+          // MOD: Don't break complex array items.
+          (options.breakComplexArrayItems ?? false) &&
+          elements.every((element, i, elements) => {
+            const elementType = element?.type;
+            if (!isArrayExpression(element) && !isObjectExpression(element)) {
+              return false;
+            }
 
-        const nextElement = elements[i + 1];
-        if (nextElement && elementType !== nextElement.type) {
-          return false;
-        }
+            const nextElement = elements[i + 1];
+            if (nextElement && elementType !== nextElement.type) {
+              return false;
+            }
 
-        const itemsKey = isArrayExpression(element) ? "elements" : "properties";
+            const itemsKey = isArrayExpression(element)
+              ? "elements"
+              : "properties";
 
-        return element[itemsKey] && element[itemsKey].length > 1;
-      });
+            return element[itemsKey] && element[itemsKey].length > 1;
+          })));
 
     const shouldUseConciseFormatting = isConciselyPrintedArray(node, options);
 
@@ -124,7 +150,14 @@ function printArray(path, options, print) {
           indent([
             softline,
             shouldUseConciseFormatting
-              ? printArrayElementsConcisely(path, options, print, trailingComma)
+              ? printArrayElementsConcisely(
+                  path,
+                  options,
+                  print,
+                  trailingComma,
+                  firstBreak, // shouldBreak
+                  firstBreak && secondBreak, // enforceBreak
+                )
               : [
                   printArrayElements(
                     path,
@@ -132,6 +165,8 @@ function printArray(path, options, print) {
                     print,
                     elementsProperty,
                     node.inexact,
+                    firstBreak, // shouldBreak
+                    firstBreak && secondBreak, // enforceBreak
                   ),
                   trailingComma,
                 ],
@@ -160,7 +195,9 @@ function isConciselyPrintedArray(node, options) {
     node.elements.every(
       (element) =>
         element &&
+        // MOD: Treat string and numeric literals the same away.
         (isNumericLiteral(element) ||
+          isStringLiteral(element) ||
           (isSignedNumericLiteral(element) && !hasComment(element.argument))) &&
         !hasComment(
           element,
@@ -186,16 +223,35 @@ function isLineAfterElementEmpty({ node }, { originalText: text }) {
   return isNextLineEmptyAfterIndex(text, skipToComma(locEnd(node)));
 }
 
-function printArrayElements(path, options, print, elementsProperty, inexact) {
+function printArrayElements(
+  path,
+  options,
+  print,
+  elementsProperty,
+  inexact,
+  shouldBreak,
+  enforceBreak,
+) {
   const parts = [];
 
-  path.each(({ node, isLast }) => {
+  path.each(({ node, isLast, next }) => {
     parts.push(node ? group(print()) : "");
 
     if (!isLast || inexact) {
+      // MOD: Respect the original line break between elements.
+      const breakAfter =
+        enforceBreak ||
+        (shouldBreak &&
+          node &&
+          next &&
+          hasNewlineInRange(
+            options.originalText,
+            locEnd(node),
+            locStart(next),
+          ));
       parts.push([
         ",",
-        line,
+        breakAfter ? hardline : line,
         node && isLineAfterElementEmpty(path, options) ? softline : "",
       ]);
     }
@@ -208,17 +264,39 @@ function printArrayElements(path, options, print, elementsProperty, inexact) {
   return parts;
 }
 
-function printArrayElementsConcisely(path, options, print, trailingComma) {
+function printArrayElementsConcisely(
+  path,
+  options,
+  print,
+  trailingComma,
+  shouldBreak,
+  enforceBreak,
+) {
   const parts = [];
 
-  path.each(({ isLast, next }) => {
+  path.each(({ node, isLast, next }) => {
     parts.push([print(), isLast ? trailingComma : ","]);
 
     if (!isLast) {
+      // MOD: Respect the original line break between elements.
+      const breakAfter =
+        enforceBreak ||
+        (shouldBreak &&
+          node &&
+          next &&
+          hasNewlineInRange(
+            options.originalText,
+            locEnd(node),
+            locStart(next),
+          ));
       parts.push(
         isLineAfterElementEmpty(path, options)
           ? [hardline, hardline]
-          : hasComment(next, CommentCheckFlags.Leading | CommentCheckFlags.Line)
+          : breakAfter ||
+              hasComment(
+                next,
+                CommentCheckFlags.Leading | CommentCheckFlags.Line,
+              )
             ? hardline
             : line,
       );
