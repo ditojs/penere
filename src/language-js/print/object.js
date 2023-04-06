@@ -239,12 +239,13 @@ function printObject(path, options, print) {
   return group(content, { shouldBreak });
 }
 
-function shouldHugTheOnlyParameter(node, name) {
+function shouldHugTheOnlyParameter(node, name, number) {
   return (
     (name === "params" ||
       name === "parameters" ||
       name === "this" ||
       name === "rest") &&
+    number === 0 &&
     shouldHugTheOnlyFunctionParameter(node)
   );
 }
