@@ -20,6 +20,8 @@ import {
   isMemberExpression,
   isTSTypeExpression,
 } from "../utils/index.js";
+import hasNewlineInRange from "../../utils/has-newline-in-range.js";
+import { locEnd, locStart } from "../loc.js";
 
 function printTemplateLiteral(path, print, options) {
   const { node } = path;
@@ -38,7 +40,8 @@ function printTemplateLiteral(path, print, options) {
   const parts = [];
 
   let expressionDocs = path.map(print, expressionsKey);
-  const isSimple = isSimpleTemplateLiteral(node);
+  // MOD: Treat all template literals the same.
+  const isSimple = false && isSimpleTemplateLiteral(node);
 
   if (isSimple) {
     expressionDocs = expressionDocs.map(
@@ -84,7 +87,9 @@ function printTemplateLiteral(path, print, options) {
       const expression = node[expressionsKey][index];
       // Breaks at the template element boundaries (${ and }) are preferred to breaking
       // in the middle of a MemberExpression
+      // MOD: Preserve breaks in template literals.
       if (
+        (options.preserveTemplateLiterals ?? true) ||
         hasComment(expression) ||
         isMemberExpression(expression) ||
         expression.type === "ConditionalExpression" ||
@@ -92,7 +97,20 @@ function printTemplateLiteral(path, print, options) {
         isTSTypeExpression(expression) ||
         isBinaryish(expression)
       ) {
-        expressionDoc = [indent([softline, expressionDoc]), softline];
+        const shouldBreak = hasNewlineInRange(
+          options.originalText,
+          locEnd(quasi),
+          locStart(expression)
+        );
+        const line = shouldBreak ? hardline : softline;
+        // MOD: Preserve breaks in template literals, with special handling
+        // for "TSUnionType".
+        expressionDoc =
+          Array.isArray(expressionDoc) || expression.type !== "TSUnionType"
+            ? [indent([line, expressionDoc]), line]
+            : shouldBreak
+            ? [{ ...expressionDoc, break: true }, line]
+            : expressionDoc;
       }
     }
 
