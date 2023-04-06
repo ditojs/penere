@@ -40,7 +40,8 @@ function printTemplateLiteral(path, print, options) {
   const parts = [];
 
   let expressionDocs = path.map(print, expressionsKey);
-  const isSimple = isSimpleTemplateLiteral(node);
+  // MOD: Treat all template literals the same.
+  const isSimple = false && isSimpleTemplateLiteral(node);
 
   if (isSimple) {
     expressionDocs = expressionDocs.map(
@@ -109,7 +110,9 @@ function printTemplateLiteral(path, print, options) {
 
       // Breaks at the template element boundaries (${ and }) are preferred to breaking
       // in the middle of a MemberExpression
+      // MOD: Preserve breaks in template literals.
       if (
+        (options.preserveTemplateLiterals ?? true) ||
         interpolationHasNewline &&
         (hasComment(expression) ||
           isMemberExpression(expression) ||
@@ -118,7 +121,20 @@ function printTemplateLiteral(path, print, options) {
           isBinaryCastExpression(expression) ||
           isBinaryish(expression))
       ) {
-        expressionDoc = [indent([softline, expressionDoc]), softline];
+        const shouldBreak = hasNewlineInRange(
+          options.originalText,
+          locEnd(quasi),
+          locStart(expression)
+        );
+        const line = shouldBreak ? hardline : softline;
+        // MOD: Preserve breaks in template literals, with special handling
+        // for "TSUnionType".
+        expressionDoc =
+          Array.isArray(expressionDoc) || expression.type !== "TSUnionType"
+            ? [indent([line, expressionDoc]), line]
+            : shouldBreak
+            ? [{ ...expressionDoc, break: true }, line]
+            : expressionDoc;
       }
     }
 
