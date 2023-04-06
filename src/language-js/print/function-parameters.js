@@ -10,8 +10,9 @@ import {
 import { removeLines, willBreak } from "../../document/utils.js";
 import { printDanglingComments } from "../../main/comments/print.js";
 import getNextNonSpaceNonCommentCharacter from "../../utils/get-next-non-space-non-comment-character.js";
+import hasNewlineInRange from '../../utils/has-newline-in-range.js'
 import isNonEmptyArray from "../../utils/is-non-empty-array.js";
-import { locEnd } from "../loc.js";
+import { locEnd, locStart } from "../loc.js";
 import {
   getFunctionParameters,
   hasComment,
@@ -61,14 +62,22 @@ function printFunctionParameters(
 
   const { parent } = path;
   const isParametersInTestCall = isTestCall(parent);
-  const shouldHugParameters = shouldHugTheOnlyFunctionParameter(functionNode);
+  // MOD: Preserve line breaks in function parameters.
+  const shouldBreak = hasNewlineInRange(
+    options.originalText,
+    locStart(functionNode),
+    locStart(parameters[0])
+  );
+
+  const shouldHugParameters =
+    !shouldBreak && shouldHugTheOnlyFunctionParameter(functionNode);
   const printed = [];
   iterateFunctionParametersPath(path, (parameterPath, index) => {
     const isLastParameter = index === parameters.length - 1;
     if (isLastParameter && functionNode.rest) {
       printed.push("...");
     }
-    printed.push(print());
+    printed.push(shouldBreak ? group(print(), { shouldBreak: true }) : print());
     if (isLastParameter) {
       return;
     }
@@ -162,30 +171,42 @@ function shouldHugTheOnlyFunctionParameter(node) {
     return false;
   }
   const parameters = getFunctionParameters(node);
-  if (parameters.length !== 1) {
+  // MOD: Allow function to hug multiple parameters if the last parameter is an
+  // object, essentially deploying the same rule as for function calls.
+  if (parameters.length === 0) {
     return false;
   }
-  const [parameter] = parameters;
+
+  function isHuggableParameter(parameter) {
+    return (
+      parameter &&
+      !hasComment(parameter) &&
+      (parameter.type === "ObjectPattern" ||
+        parameter.type === "ArrayPattern" ||
+        (parameter.type === "Identifier" &&
+          parameter.typeAnnotation &&
+          (parameter.typeAnnotation.type === "TypeAnnotation" ||
+            parameter.typeAnnotation.type === "TSTypeAnnotation") &&
+          isObjectType(parameter.typeAnnotation.typeAnnotation)) ||
+        (parameter.type === "FunctionTypeParam" &&
+          isObjectType(parameter.typeAnnotation) &&
+          parameter !== node.rest) ||
+        (parameter.type === "AssignmentPattern" &&
+          (parameter.left.type === "ObjectPattern" ||
+            parameter.left.type === "ArrayPattern") &&
+          (parameter.right.type === "Identifier" ||
+            (isObjectOrRecordExpression(parameter.right) &&
+              parameter.right.properties.length === 0) ||
+            (isArrayOrTupleExpression(parameter.right) &&
+              parameter.right.elements.length === 0))))
+    );
+  }
+
   return (
-    !hasComment(parameter) &&
-    (parameter.type === "ObjectPattern" ||
-      parameter.type === "ArrayPattern" ||
-      (parameter.type === "Identifier" &&
-        parameter.typeAnnotation &&
-        (parameter.typeAnnotation.type === "TypeAnnotation" ||
-          parameter.typeAnnotation.type === "TSTypeAnnotation") &&
-        isObjectType(parameter.typeAnnotation.typeAnnotation)) ||
-      (parameter.type === "FunctionTypeParam" &&
-        isObjectType(parameter.typeAnnotation) &&
-        parameter !== node.rest) ||
-      (parameter.type === "AssignmentPattern" &&
-        (parameter.left.type === "ObjectPattern" ||
-          parameter.left.type === "ArrayPattern") &&
-        (parameter.right.type === "Identifier" ||
-          (isObjectOrRecordExpression(parameter.right) &&
-            parameter.right.properties.length === 0) ||
-          (isArrayOrTupleExpression(parameter.right) &&
-            parameter.right.elements.length === 0))))
+    isHuggableParameter(parameters.at(-1)) &&
+    parameters
+      .slice(0, -1)
+      .every((parameter) => !isHuggableParameter(parameter))
   );
 }
 
