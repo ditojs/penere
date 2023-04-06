@@ -102,17 +102,32 @@ function printTemplateLiteral(path, options, print) {
 
     // Breaks at the template element boundaries (${ and }) are preferred to breaking
     // in the middle of a MemberExpression
+    // MOD: Preserve breaks in template literals.
     if (
-      interpolationHasNewline &&
-      (hasComment(expression) ||
-        expression.type === "Identifier" ||
-        isMemberExpression(expression) ||
-        expression.type === "ConditionalExpression" ||
-        expression.type === "SequenceExpression" ||
-        isBinaryCastExpression(expression) ||
-        isBinaryish(expression))
+      (options.preserveTemplateLiterals ?? true) ||
+      (interpolationHasNewline &&
+        (hasComment(expression) ||
+          expression.type === "Identifier" ||
+          isMemberExpression(expression) ||
+          expression.type === "ConditionalExpression" ||
+          expression.type === "SequenceExpression" ||
+          isBinaryCastExpression(expression) ||
+          isBinaryish(expression)))
     ) {
-      expressionDoc = [indent([softline, expressionDoc]), softline];
+      const shouldBreak = hasNewlineInRange(
+        options.originalText,
+        locEnd(quasi),
+        locStart(expression),
+      );
+      const line = shouldBreak ? hardline : softline;
+      // MOD: Preserve breaks in template literals, with special handling
+      // for "TSUnionType".
+      expressionDoc =
+        Array.isArray(expressionDoc) || expression.type !== "TSUnionType"
+          ? [indent([line, expressionDoc]), line]
+          : shouldBreak
+            ? [{ ...expressionDoc, break: true }, line]
+            : expressionDoc;
     }
 
     const aligned =
