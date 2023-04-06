@@ -15,6 +15,8 @@ import {
   CommentCheckFlags,
   getComments,
   hasComment,
+  isCallLikeExpression,
+  isFunctionLikeType,
   isNextLineEmpty,
   isObjectType,
   shouldPrintComma,
@@ -79,6 +81,8 @@ function printObject(path, options, print) {
     isEnumBody ||
     isFlowInterfaceLikeBody ||
     (node.type === "ObjectPattern" &&
+      // MOD: Allow control of line-breaks in all of these situation in the same
+      // way as on normal objects:
       parent.type !== "FunctionDeclaration" &&
       parent.type !== "FunctionExpression" &&
       parent.type !== "ArrowFunctionExpression" &&
@@ -92,9 +96,8 @@ function printObject(path, options, print) {
           property.value &&
           (property.value.type === "ObjectPattern" ||
             property.value.type === "ArrayPattern"),
-      )) ||
-    (node.type !== "ObjectPattern" &&
-      options.objectWrap === "preserve" &&
+      )) || // MOD: for destructuring assignments
+    /* node.type !== "ObjectPattern" && */ (options.objectWrap === "preserve" &&
       propsAndLoc.length > 0 &&
       hasNewlineInRange(
         options.originalText,
@@ -202,11 +205,13 @@ function printObject(path, options, print) {
   // to create another group so that the object breaks before the return
   // type
   if (
-    path.match(
-      (node) =>
-        node.type === "ObjectPattern" && !isNonEmptyArray(node.decorators),
-      shouldHugTheOnlyParameter,
-    ) ||
+    (!isFunctionLikeType(parent) &&
+      !isCallLikeExpression(parent) &&
+      path.match(
+        (node) =>
+          node.type === "ObjectPattern" && !isNonEmptyArray(node.decorators),
+        shouldHugTheOnlyParameter,
+      )) ||
     (isObjectType(node) &&
       (path.match(
         undefined,
