@@ -2,8 +2,12 @@ import isNonEmptyArray from "../../utils/is-non-empty-array.js";
 import getStringWidth from "../../utils/get-string-width.js";
 import {
   line,
+  softline,
+  hardline,
   group,
+  conditionalGroup,
   indent,
+  ifBreak,
   indentIfBreak,
   lineSuffixBoundary,
 } from "../../document/builders.js";
@@ -43,7 +47,17 @@ function printAssignment(
   switch (layout) {
     // First break after operator, then the sides are broken independently on their own lines
     case "break-after-operator":
-      return group([group(leftDoc), operator, group(indent([line, rightDoc]))]);
+      // // MOD: Wrap multi-line assignments in parenthesis.
+      return group([
+        group(leftDoc),
+        operator,
+        group([
+          ifBreak(" (", " "),
+          indent([softline, rightDoc]),
+          softline,
+          ifBreak(")"),
+        ]),
+      ]);
 
     // First break right-hand side, then left-hand side
     case "never-break-after-operator":
@@ -52,13 +66,29 @@ function printAssignment(
     // First break right-hand side, then after operator
     case "fluid": {
       const groupId = Symbol("assignment");
-      return group([
+      const grouped = group([
         group(leftDoc),
         operator,
         group(indent(line), { id: groupId }),
         lineSuffixBoundary,
         indentIfBreak(rightDoc, { groupId }),
       ]);
+      // MOD: Wrap assignment expressions and ternaries in parentheses if
+      // they're multi-line.
+      const rightNode = path.node[rightPropertyName];
+      return [
+        "AssignmentExpression", //
+        "ConditionalExpression",
+      ].includes(rightNode.type)
+        ? conditionalGroup([
+            grouped,
+            group([
+              group(leftDoc),
+              operator,
+              group([" (", indent([hardline, rightDoc]), hardline, ")"]),
+            ]),
+          ])
+        : grouped;
     }
 
     case "break-lhs":
