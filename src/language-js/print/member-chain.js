@@ -14,6 +14,7 @@ import {
   CommentCheckFlags,
   isNextLineEmpty,
 } from "../utils/index.js";
+import hasNewlineInRange from "../../utils/has-newline-in-range.js";
 import { locEnd } from "../loc.js";
 
 import {
@@ -319,7 +320,20 @@ function printMemberChain(path, options, print) {
   const cutoff = shouldMerge ? 3 : 2;
   const flatGroups = groups.flat();
 
+  // MOD: Respect the original line break after the first line.
+  // Note: The first node is excluded because it's the subject of the chain, and
+  // counting starts from the second node. And this reduced index can then be
+  // used used in the call of `locEnd()` to get the end of the previous node.
+  const callIndex =
+    flatGroups.slice(1).findIndex((node) => isCallExpression(node.node)) ?? 1;
+  const shouldBreak = hasNewlineInRange(
+    options.originalText,
+    locEnd(flatGroups[0].node),
+    locEnd(flatGroups[callIndex].node)
+  );
+
   const nodeHasComment =
+    shouldBreak ||
     flatGroups
       .slice(1, -1)
       .some((node) => hasComment(node.node, CommentCheckFlags.Leading)) ||
