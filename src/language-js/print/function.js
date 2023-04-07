@@ -347,6 +347,19 @@ function printArrowFunction(path, options, print, args) {
     return group([...parts, " ", body]);
   }
 
+  // MOD: Wrap binaryish multi-line bodies in parens
+  if (isBinaryish(node.body)) {
+    return group([
+      ...parts,
+      group([
+        ifBreak(" (", " "),
+        indent([softline, body]),
+        softline,
+        ifBreak(")"),
+      ]),
+    ]);
+  }
+
   // We handle sequence expressions as the body of arrows specially,
   // so that the required parentheses end up on their own lines.
   if (node.body.type === "SequenceExpression") {
