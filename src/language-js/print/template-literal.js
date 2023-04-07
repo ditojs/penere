@@ -1,7 +1,11 @@
 "use strict";
 
 const getLast = require("../../utils/get-last.js");
-const { getStringWidth, getIndentSize } = require("../../common/util.js");
+const {
+  getStringWidth,
+  getIndentSize,
+  hasNewlineInRange,
+} = require("../../common/util.js");
 const {
   builders: {
     join,
@@ -24,6 +28,7 @@ const {
   isMemberExpression,
   isTSTypeExpression,
 } = require("../utils/index.js");
+const { locStart, locEnd } = require("../loc.js");
 
 function printTemplateLiteral(path, print, options) {
   const node = path.getValue();
@@ -45,7 +50,8 @@ function printTemplateLiteral(path, print, options) {
   const parts = [];
 
   let expressions = path.map(print, expressionsKey);
-  const isSimple = isSimpleTemplateLiteral(node);
+  // MOD: Treat all template literals the same.
+  const isSimple = false && isSimpleTemplateLiteral(node);
 
   if (isSimple) {
     expressions = expressions.map(
@@ -86,7 +92,9 @@ function printTemplateLiteral(path, print, options) {
         const expression = node[expressionsKey][i];
         // Breaks at the template element boundaries (${ and }) are preferred to breaking
         // in the middle of a MemberExpression
+        // MOD: Preserve breaks in template literals.
         if (
+          (options.preserveTemplateLiterals ?? true) ||
           hasComment(expression) ||
           isMemberExpression(expression) ||
           expression.type === "ConditionalExpression" ||
@@ -94,7 +102,19 @@ function printTemplateLiteral(path, print, options) {
           isTSTypeExpression(expression) ||
           isBinaryish(expression)
         ) {
-          printed = [indent([softline, printed]), softline];
+          const shouldBreak = hasNewlineInRange(
+            options.originalText,
+            locEnd(quasi),
+            locStart(expression)
+          );
+          // MOD: Preserve breaks in template literals, with special handling
+          // for "TSUnionType".
+          const line = shouldBreak ? hardline : softline;
+          printed = Array.isArray(printed) || expression.type !== "TSUnionType"
+            ? [indent([line, printed]), line]
+            : shouldBreak
+            ? [{ ...printed, break: true }, line]
+            : printed;
         }
       }
 
