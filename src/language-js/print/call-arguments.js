@@ -1,7 +1,12 @@
 "use strict";
 
 const { printDanglingComments } = require("../../main/comments.js");
-const { getLast, getPenultimate } = require("../../common/util.js");
+const {
+  getLast,
+  getPenultimate,
+  hasNewlineInRange,
+} = require("../../common/util.js");
+const { locStart, locEnd } = require("../loc.js");
 const {
   getFunctionParameters,
   hasComment,
@@ -90,6 +95,19 @@ function printCallArguments(path, options, print) {
       ["(", indent([line, ...printedArguments]), maybeTrailingComma, line, ")"],
       { shouldBreak: true }
     );
+  }
+
+  // MOD: Preserve line breaks in call arguments.
+  const shouldBreak = args.some((arg, index) =>
+    hasNewlineInRange(
+      options.originalText,
+      locEnd(index > 0 ? args[index - 1] : node.callee),
+      locStart(arg)
+    )
+  );
+
+  if (shouldBreak) {
+    return allArgsBrokenOut();
   }
 
   if (
