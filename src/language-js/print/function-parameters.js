@@ -1,6 +1,10 @@
 "use strict";
 
-const { getNextNonSpaceNonCommentCharacter } = require("../../common/util.js");
+const {
+  getNextNonSpaceNonCommentCharacter,
+  hasNewlineInRange,
+  getLast,
+} = require("../../common/util.js");
 const { printDanglingComments } = require("../../main/comments.js");
 const {
   builders: { line, hardline, softline, group, indent, ifBreak },
@@ -19,7 +23,7 @@ const {
   hasComment,
   isNextLineEmpty,
 } = require("../utils/index.js");
-const { locEnd } = require("../loc.js");
+const { locStart, locEnd } = require("../loc.js");
 const { ArgExpansionBailout } = require("../../common/errors.js");
 const { printFunctionTypeParameters } = require("./misc.js");
 
@@ -57,14 +61,22 @@ function printFunctionParameters(
 
   const parent = path.getParentNode();
   const isParametersInTestCall = isTestCall(parent);
-  const shouldHugParameters = shouldHugFunctionParameters(functionNode);
+  // MOD: Preserve line breaks in function parameters.
+  const shouldBreak = hasNewlineInRange(
+    options.originalText,
+    locStart(functionNode),
+    locStart(parameters[0])
+  );
+
+  const shouldHugParameters =
+    !shouldBreak && shouldHugFunctionParameters(functionNode);
   const printed = [];
   iterateFunctionParametersPath(path, (parameterPath, index) => {
     const isLastParameter = index === parameters.length - 1;
     if (isLastParameter && functionNode.rest) {
       printed.push("...");
     }
-    printed.push(print());
+    printed.push(shouldBreak ? group(print(), { shouldBreak: true }) : print());
     if (isLastParameter) {
       return;
     }
@@ -157,29 +169,40 @@ function shouldHugFunctionParameters(node) {
     return false;
   }
   const parameters = getFunctionParameters(node);
-  if (parameters.length !== 1) {
+  // MOD: Allow function to hug multiple parameters if the last parameter is an
+  // object, essentially deploying the same rule as for function calls.
+  if (parameters.length === 0) {
     return false;
   }
-  const [parameter] = parameters;
+
+  function isHuggableParameter(parameter) {
+    return (
+      !hasComment(parameter) &&
+      (parameter.type === "ObjectPattern" ||
+        parameter.type === "ArrayPattern" ||
+        (parameter.type === "Identifier" &&
+          parameter.typeAnnotation &&
+          (parameter.typeAnnotation.type === "TypeAnnotation" ||
+            parameter.typeAnnotation.type === "TSTypeAnnotation") &&
+          isObjectType(parameter.typeAnnotation.typeAnnotation)) ||
+        (parameter.type === "FunctionTypeParam" &&
+          isObjectType(parameter.typeAnnotation)) ||
+        (parameter.type === "AssignmentPattern" &&
+          (parameter.left.type === "ObjectPattern" ||
+            parameter.left.type === "ArrayPattern") &&
+          (parameter.right.type === "Identifier" ||
+            (parameter.right.type === "ObjectExpression" &&
+              parameter.right.properties.length === 0) ||
+            (parameter.right.type === "ArrayExpression" &&
+              parameter.right.elements.length === 0))))
+    );
+  }
+
   return (
-    !hasComment(parameter) &&
-    (parameter.type === "ObjectPattern" ||
-      parameter.type === "ArrayPattern" ||
-      (parameter.type === "Identifier" &&
-        parameter.typeAnnotation &&
-        (parameter.typeAnnotation.type === "TypeAnnotation" ||
-          parameter.typeAnnotation.type === "TSTypeAnnotation") &&
-        isObjectType(parameter.typeAnnotation.typeAnnotation)) ||
-      (parameter.type === "FunctionTypeParam" &&
-        isObjectType(parameter.typeAnnotation)) ||
-      (parameter.type === "AssignmentPattern" &&
-        (parameter.left.type === "ObjectPattern" ||
-          parameter.left.type === "ArrayPattern") &&
-        (parameter.right.type === "Identifier" ||
-          (parameter.right.type === "ObjectExpression" &&
-            parameter.right.properties.length === 0) ||
-          (parameter.right.type === "ArrayExpression" &&
-            parameter.right.elements.length === 0))))
+    isHuggableParameter(getLast(parameters)) &&
+    parameters
+      .slice(0, -1)
+      .every((parameter) => !isHuggableParameter(parameter))
   );
 }
 
