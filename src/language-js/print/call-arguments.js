@@ -11,6 +11,8 @@ import {
 } from "../../document/builders.js";
 import { willBreak } from "../../document/utils.js";
 import { printDanglingComments } from "../../main/comments/print.js";
+import hasNewlineInRange from '../../utils/has-newline-in-range.js'
+import { locEnd, locStart } from '../loc.js'
 import {
   CommentCheckFlags,
   getCallArguments,
@@ -79,6 +81,19 @@ function printCallArguments(path, options, print) {
       ["(", indent([line, ...printedArguments]), maybeTrailingComma, line, ")"],
       { shouldBreak: true },
     );
+  }
+
+  // MOD: Preserve line breaks in call arguments.
+  const shouldBreak = args.some((arg, index) =>
+    hasNewlineInRange(
+      options.originalText,
+      locEnd(index > 0 ? args[index - 1] : node.callee ?? node),
+      locStart(arg)
+    )
+  );
+
+  if (shouldBreak) {
+    return allArgsBrokenOut();
   }
 
   if (
