@@ -575,7 +575,49 @@ function printDocToString(doc, options) {
     };
   }
 
-  return { formatted: out.join("") };
+  // MOD: Pull dangling opening parenthesis and empty object, array and string
+  // literals after binaryish operators followed by newlines up to the previous
+  // line.
+  const binaryishExp = new RegExp(
+    `(${binaryishOperators})${newLine}\\s*((?:\\(|(?:\\{\\}|\\[\\]|['"\`]{2})[);]*)${newLine})`,
+    "g"
+  );
+  const formatted = out.join("").replace(binaryishExp, "$1 $2");
+
+  return { formatted };
 }
+
+const binaryishOperators = [
+  // LogicalOperator
+  "&&",
+  "||",
+  "??",
+
+  // BinaryOperator
+  "==",
+  "!=",
+  "===",
+  "!==",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "<<",
+  ">>",
+  ">>>",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "&",
+  "|",
+  "^",
+  "in",
+  "instanceof",
+  "..",
+]
+  .map((operator) => `${operator.replaceAll(/[$()*+./?[\\\]^{|}-]/g, "\\$&")}`)
+  .join("|");
 
 module.exports = { printDocToString };
