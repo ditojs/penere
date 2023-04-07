@@ -16,6 +16,9 @@ const {
   getComments,
   CommentCheckFlags,
   isNextLineEmpty,
+  isFunctionOrArrowExpression,
+  isFunctionLikeType,
+  isCallLikeExpression,
 } = require("../utils/index.js");
 const { locStart, locEnd } = require("../loc.js");
 
@@ -62,6 +65,8 @@ function printObject(path, options, print) {
     node.type === "TSInterfaceBody" ||
     isFlowInterfaceLikeBody ||
     (node.type === "ObjectPattern" &&
+      // MOD: Allow control of line-breaks in all of these situation in the same
+      // way as on normal objects:
       parent.type !== "FunctionDeclaration" &&
       parent.type !== "FunctionExpression" &&
       parent.type !== "ArrowFunctionExpression" &&
@@ -75,9 +80,8 @@ function printObject(path, options, print) {
           property.value &&
           (property.value.type === "ObjectPattern" ||
             property.value.type === "ArrayPattern")
-      )) ||
-    (node.type !== "ObjectPattern" &&
-      firstProperty &&
+      )) /* node.type !== "ObjectPattern" && */ || // MOD: for destructuring assignments
+    (firstProperty &&
       hasNewlineInRange(
         options.originalText,
         locStart(node),
@@ -205,16 +209,18 @@ function printObject(path, options, print) {
   // to create another group so that the object breaks before the return
   // type
   if (
-    path.match(
-      (node) => node.type === "ObjectPattern" && !node.decorators,
-      (node, name, number) =>
-        shouldHugFunctionParameters(node) &&
-        (name === "params" ||
-          name === "parameters" ||
-          name === "this" ||
-          name === "rest") &&
-        number === 0
-    ) ||
+    (!isFunctionLikeType(parent) &&
+      !isCallLikeExpression(parent) &&
+      path.match(
+        (node) => node.type === "ObjectPattern" && !node.decorators,
+        (node, name, number) =>
+          shouldHugFunctionParameters(node) &&
+          (name === "params" ||
+            name === "parameters" ||
+            name === "this" ||
+            name === "rest") &&
+          number === 0
+      )) ||
     path.match(
       shouldHugType,
       (node, name) => name === "typeAnnotation",
