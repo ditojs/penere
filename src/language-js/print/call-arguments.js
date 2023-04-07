@@ -35,6 +35,8 @@ import {
   breakParent,
 } from "../../document/builders.js";
 import { willBreak } from "../../document/utils.js";
+import hasNewlineInRange from "../../utils/has-newline-in-range.js";
+import { locStart, locEnd } from "../loc.js";
 
 import { ArgExpansionBailout } from "../../common/errors.js";
 import { isConciselyPrintedArray } from "./array.js";
@@ -81,6 +83,19 @@ function printCallArguments(path, options, print) {
       ["(", indent([line, ...printedArguments]), maybeTrailingComma, line, ")"],
       { shouldBreak: true },
     );
+  }
+
+  // MOD: Preserve line breaks in call arguments.
+  const shouldBreak = args.some((arg, index) =>
+    hasNewlineInRange(
+      options.originalText,
+      locEnd(index > 0 ? args[index - 1] : node.callee ?? node),
+      locStart(arg)
+    )
+  );
+
+  if (shouldBreak) {
+    return allArgsBrokenOut();
   }
 
   if (
