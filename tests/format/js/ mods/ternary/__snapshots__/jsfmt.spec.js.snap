@@ -1,0 +1,27 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`ternary.js format 1`] = `
+====================================options=====================================
+parsers: ["babel", "flow", "typescript"]
+printWidth: 80
+                                                                                | printWidth
+=====================================input======================================
+const value1 = one ? true : two ? three : four
+
+const value2 = one
+  ? true
+  : two
+  ? three
+  : four
+
+=====================================output=====================================
+const value1 = one ? true : two ? three : four;
+
+const value2 = one
+  ? true
+  : two
+    ? three
+    : four;
+
+================================================================================
+`;
