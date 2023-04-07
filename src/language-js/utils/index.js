@@ -279,6 +279,19 @@ function isFunctionOrArrowExpressionWithBody(node) {
 }
 
 /**
+ * @param {Node} node
+ * @returns {boolean}
+ */
+const isFunctionLikeType = createTypeCheckFunction([
+    "FunctionDeclaration",
+    "FunctionExpression",
+    "ArrowFunctionExpression",
+    "ClassMethod",
+    "MethodDefinition",
+    "ObjectMethod",
+])
+
+/**
  * Note: `inject` is used in AngularJS 1.x, `async` and `fakeAsync` in
  * Angular 2+, although `async` is deprecated and replaced by `waitForAsync`
  * since Angular 12.
@@ -1320,6 +1333,7 @@ module.exports = {
   isFunctionCompositionArgs,
   isFunctionNotation,
   isFunctionOrArrowExpression,
+  isFunctionLikeType,
   isGetterOrSetter,
   isJestEachTemplateLiteral,
   isJsxNode,
