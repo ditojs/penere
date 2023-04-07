@@ -1043,7 +1043,9 @@ function shouldFlatten(parentOp, nodeOp) {
     multiplicativeOperators[nodeOp] &&
     multiplicativeOperators[parentOp]
   ) {
-    return false;
+    // MOD: Disable flattening of multiplicative operators, allow user to place
+    // their own parens.
+    // return false;
   }
 
   // x << y << z --> (x << y) << z

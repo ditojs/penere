@@ -6,7 +6,7 @@
 const { printDanglingComments } = require("../main/comments.js");
 const { hasNewline } = require("../common/util.js");
 const {
-  builders: { join, line, hardline, softline, group, indent },
+  builders: { join, line, hardline, softline, group, indent, indentIfBreak },
   utils: { replaceTextEndOfLine },
 } = require("../document/index.js");
 const embed = require("./embed.js");
@@ -138,9 +138,14 @@ function genericPrint(path, options, print, args) {
 
     return parts;
   }
-
+  // MOD: Indent conditional expressions that need parens
+  let groupId = null;
+  const isConditionalExpression = needsParens && node.type === "ConditionalExpression";
   if (isClassExpressionWithDecorators) {
     parts = [indent([line, ...parts])];
+  } else if (isConditionalExpression) {
+    groupId = Symbol("conditional");
+    parts = [indentIfBreak([softline, ...parts], { groupId })];
   }
 
   parts.unshift("(");
@@ -157,11 +162,13 @@ function genericPrint(path, options, print, args) {
 
   if (isClassExpressionWithDecorators) {
     parts.push(line);
+  } else if (isConditionalExpression) {
+    parts.push(softline);
   }
 
   parts.push(")");
 
-  return parts;
+  return groupId ? group(parts, { id: groupId }) : parts;
 }
 
 function printPathNoParens(path, options, print, args) {
@@ -268,7 +275,7 @@ function printPathNoParens(path, options, print, args) {
       return printVariableDeclarator(path, options, print);
     case "BinaryExpression":
     case "LogicalExpression":
-      return printBinaryishExpression(path, options, print);
+      return printBinaryishExpression(path, options, print, args);
     case "AssignmentPattern":
       return [print("left"), " = ", print("right")];
     case "OptionalMemberExpression":

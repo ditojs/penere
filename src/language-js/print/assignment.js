@@ -2,7 +2,17 @@
 
 const { isNonEmptyArray, getStringWidth } = require("../../common/util.js");
 const {
-  builders: { line, group, indent, indentIfBreak, lineSuffixBoundary },
+  builders: {
+    line,
+    softline,
+    hardline,
+    group,
+    indent,
+    ifBreak,
+    indentIfBreak,
+    lineSuffixBoundary,
+    conditionalGroup,
+  },
   utils: { cleanDoc, willBreak, canBreak },
 } = require("../../document/index.js");
 const {
@@ -33,11 +43,23 @@ function printAssignment(
   const layout = chooseLayout(path, options, print, leftDoc, rightPropertyName);
 
   const rightDoc = print(rightPropertyName, { assignmentLayout: layout });
+  const rightNode = path.getValue()[rightPropertyName];
 
   switch (layout) {
     // First break after operator, then the sides are broken independently on their own lines
-    case "break-after-operator":
-      return group([group(leftDoc), operator, group(indent([line, rightDoc]))]);
+    case "break-after-operator": {
+      // // MOD: Wrap multi-line binaryish assignments in parenthesis.
+      const needsParens = isBinaryish(rightNode);
+      const rightGroup = needsParens
+        ? group([
+            ifBreak(" (", " "),
+            indent([softline, rightDoc]),
+            softline,
+            ifBreak(")"),
+          ])
+        : group(indent([line, rightDoc]));
+      return group([group(leftDoc), operator, rightGroup]);
+    }
 
     // First break right-hand side, then left-hand side
     case "never-break-after-operator":
@@ -46,13 +68,29 @@ function printAssignment(
     // First break right-hand side, then after operator
     case "fluid": {
       const groupId = Symbol("assignment");
-      return group([
+      const grouped = group([
         group(leftDoc),
         operator,
         group(indent(line), { id: groupId }),
         lineSuffixBoundary,
         indentIfBreak(rightDoc, { groupId }),
       ]);
+      // // MOD: Wrap multi-line binaryish assignments in parenthesis.
+      return isBinaryish(rightNode) &&
+        !shouldInlineLogicalExpression(
+          path.getValue(),
+          path.getParentNode(),
+          options
+        )
+        ? conditionalGroup([
+            grouped,
+            group([
+              group(leftDoc),
+              operator,
+              group([" (", indent([hardline, rightDoc]), hardline, ")"]),
+            ]),
+          ])
+        : grouped;
     }
 
     case "break-lhs":
@@ -176,7 +214,10 @@ function chooseLayout(path, options, print, leftDoc, rightPropertyName) {
 function shouldBreakAfterOperator(path, options, print, hasShortKey) {
   const rightNode = path.getValue();
 
-  if (isBinaryish(rightNode) && !shouldInlineLogicalExpression(rightNode)) {
+  if (
+    isBinaryish(rightNode) &&
+    !shouldInlineLogicalExpression(rightNode, path.getParentNode(), options)
+  ) {
     return true;
   }
 
@@ -186,7 +227,10 @@ function shouldBreakAfterOperator(path, options, print, hasShortKey) {
       return true;
     case "ConditionalExpression": {
       const { test } = rightNode;
-      return isBinaryish(test) && !shouldInlineLogicalExpression(test);
+      return (
+        isBinaryish(test) &&
+        !shouldInlineLogicalExpression(test, rightNode, options)
+      );
     }
     case "ClassExpression":
       return isNonEmptyArray(rightNode.decorators);

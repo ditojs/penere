@@ -265,6 +265,7 @@
         "precommit",
         "prefetch",
         "preorder",
+        "prerun",
         "prettierformatsource",
         "prettiergetsupportinfo",
         "prettierignore",
