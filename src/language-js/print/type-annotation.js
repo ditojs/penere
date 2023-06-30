@@ -4,12 +4,12 @@ const {
   printComments,
   printDanglingComments,
 } = require("../../main/comments.js");
-const { isNonEmptyArray } = require("../../common/util.js");
+const { isNonEmptyArray, hasNewlineInRange } = require("../../common/util.js");
 const {
   builders: { group, join, line, softline, indent, align, ifBreak },
 } = require("../../document/index.js");
 const pathNeedsParens = require("../needs-parens.js");
-const { locStart } = require("../loc.js");
+const { locStart, locEnd } = require("../loc.js");
 const {
   isSimpleType,
   isObjectType,
@@ -198,7 +198,13 @@ function printUnionType(path, options, print) {
     ]);
   }
 
-  return group(shouldIndent ? indent(code) : code);
+  // MOD: Preserve line-breaks in TS unions
+  const shouldBreak = hasNewlineInRange(
+    options.originalText,
+    locStart(node),
+    locEnd(node),
+  );
+  return group(shouldIndent ? indent(code) : code, { shouldBreak });
 }
 
 // `TSFunctionType` and `FunctionTypeAnnotation`
