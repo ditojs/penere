@@ -224,6 +224,8 @@
         "posix",
         "precache",
         "preorder",
+        "preprocess",
+        "prerun",
         "prettierx",
         "progid",
         "Pschera",
