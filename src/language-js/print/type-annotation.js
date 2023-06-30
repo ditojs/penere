@@ -9,7 +9,7 @@ import {
   ifBreak,
 } from "../../document/builders.js";
 import pathNeedsParens from "../needs-parens.js";
-import { hasSameLocStart } from "../loc.js";
+import { locStart, locEnd, hasSameLocStart } from "../loc.js";
 import {
   isSimpleType,
   isObjectType,
@@ -28,6 +28,7 @@ import {
   printDeclareToken,
   printAbstractToken,
 } from "./misc.js";
+import hasNewlineInRange from "../../utils/has-newline-in-range.js";
 
 /**
  * @typedef {import("../../document/builders.js").Doc} Doc
@@ -231,7 +232,13 @@ function printUnionType(path, options, print) {
     }
   }
 
-  return group(shouldIndent ? indent(code) : code);
+  // MOD: Preserve line-breaks in TS unions
+  const shouldBreak = hasNewlineInRange(
+    options.originalText,
+    locStart(node),
+    locEnd(node),
+  );
+  return group(shouldIndent ? indent(code) : code, { shouldBreak });
 }
 
 /*
