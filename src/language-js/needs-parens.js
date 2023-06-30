@@ -16,6 +16,7 @@ import {
   isObjectOrRecordExpression,
   createTypeCheckFunction,
 } from "./utils/index.js";
+import { isParenthesized } from "./utils/is-parenthesized.js";
 
 function needsParens(path, options) {
   if (path.isRoot) {
@@ -357,7 +358,11 @@ function needsParens(path, options) {
 
         case "LogicalExpression":
           if (node.type === "LogicalExpression") {
-            return parent.operator !== node.operator;
+            // MOD: Only add parens to logical expressions if the operator
+            // precedence dictates it, or if it was parenthesized in the
+            // original code.
+            // return parent.operator !== node.operator;
+            return isParenthesized(node, options);
           }
         // else fallthrough
 
@@ -387,7 +392,8 @@ function needsParens(path, options) {
           }
 
           if (parentPrecedence < precedence && operator === "%") {
-            return parentOperator === "+" || parentOperator === "-";
+          // MOD: No special treatment for modulo
+          // return parentOperator === "+" || parentOperator === "-";
           }
 
           // Add parenthesis when working with bitwise operators
@@ -396,7 +402,7 @@ function needsParens(path, options) {
             return true;
           }
 
-          return false;
+          return isParenthesized(node, options);
         }
 
         default:

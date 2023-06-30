@@ -263,6 +263,7 @@
         "prefetch",
         "preorder",
         "preprocess",
+        "prerun",
         "prettierformatsource",
         "prettiergetsupportinfo",
         "prettierx",
