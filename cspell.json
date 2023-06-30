@@ -241,6 +241,7 @@
         "precommit",
         "preorder",
         "preprocess",
+        "prerun",
         "prettierx",
         "progid",
         "proto",

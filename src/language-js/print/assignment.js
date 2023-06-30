@@ -2,23 +2,27 @@ import isNonEmptyArray from "../../utils/is-non-empty-array.js";
 import getStringWidth from "../../utils/get-string-width.js";
 import {
   line,
+  softline,
+  hardline,
   group,
   indent,
+  ifBreak,
   indentIfBreak,
   lineSuffixBoundary,
+  conditionalGroup,
 } from "../../document/builders.js";
 import { cleanDoc, willBreak, canBreak } from "../../document/utils.js";
 import {
   hasLeadingOwnLineComment,
   isBinaryish,
   isStringLiteral,
-  isNumericLiteral,
   isCallExpression,
   isMemberExpression,
   getCallArguments,
   isLoneShortArgument,
   isObjectProperty,
   createTypeCheckFunction,
+  isNumericLiteral,
 } from "../utils/index.js";
 import { shouldInlineLogicalExpression } from "./binaryish.js";
 import { printCallExpression } from "./call-expression.js";
@@ -36,11 +40,23 @@ function printAssignment(
   const rightDoc = rightPropertyName
     ? print(rightPropertyName, { assignmentLayout: layout })
     : "";
+  const rightNode = path.node[rightPropertyName];
 
   switch (layout) {
     // First break after operator, then the sides are broken independently on their own lines
-    case "break-after-operator":
-      return group([group(leftDoc), operator, group(indent([line, rightDoc]))]);
+    case "break-after-operator": {
+      // // MOD: Wrap multi-line binaryish assignments in parenthesis.
+      const needsParens = isBinaryish(rightNode);
+      const rightGroup = needsParens
+        ? group([
+            ifBreak(" (", " "),
+            indent([softline, rightDoc]),
+            softline,
+            ifBreak(")"),
+          ])
+        : group(indent([line, rightDoc]));
+      return group([group(leftDoc), operator, rightGroup]);
+    }
 
     // First break right-hand side, then left-hand side
     case "never-break-after-operator":
@@ -49,13 +65,25 @@ function printAssignment(
     // First break right-hand side, then after operator
     case "fluid": {
       const groupId = Symbol("assignment");
-      return group([
+      const grouped = group([
         group(leftDoc),
         operator,
         group(indent(line), { id: groupId }),
         lineSuffixBoundary,
         indentIfBreak(rightDoc, { groupId }),
       ]);
+      // // MOD: Wrap multi-line binaryish assignments in parenthesis.
+      return isBinaryish(rightNode) &&
+        !shouldInlineLogicalExpression(path.node, path.parent, options)
+        ? conditionalGroup([
+            grouped,
+            group([
+              group(leftDoc),
+              operator,
+              group([" (", indent([hardline, rightDoc]), hardline, ")"]),
+            ]),
+          ])
+        : grouped
     }
 
     case "break-lhs":
@@ -182,7 +210,10 @@ function chooseLayout(path, options, print, leftDoc, rightPropertyName) {
 function shouldBreakAfterOperator(path, options, print, hasShortKey) {
   const rightNode = path.node;
 
-  if (isBinaryish(rightNode) && !shouldInlineLogicalExpression(rightNode)) {
+  if (
+    isBinaryish(rightNode) &&
+    !shouldInlineLogicalExpression(rightNode, path.parent, options)
+  ) {
     return true;
   }
 
@@ -199,7 +230,7 @@ function shouldBreakAfterOperator(path, options, print, hasShortKey) {
     case "ConditionalExpression": {
       if (!options.experimentalTernaries) {
         const { test } = rightNode;
-        return isBinaryish(test) && !shouldInlineLogicalExpression(test);
+        return isBinaryish(test) && !shouldInlineLogicalExpression(test, rightNode, options);
       }
       const { consequent, alternate } = rightNode;
       return (
