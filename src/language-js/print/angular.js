@@ -10,7 +10,7 @@ import { printBinaryishExpression } from "./binaryish.js";
 
 /** @typedef {import("../../common/ast-path.js").default} AstPath */
 
-function printAngular(path, options, print) {
+function printAngular(path, options, print, args) {
   const { node } = path;
 
   // Angular nodes always starts with `NG`
@@ -27,7 +27,7 @@ function printAngular(path, options, print) {
           : "",
       ];
     case "NGPipeExpression":
-      return printBinaryishExpression(path, options, print);
+      return printBinaryishExpression(path, options, print, args);
     case "NGChainedExpression":
       return group(
         join(
