@@ -30,7 +30,7 @@ function binary() {
   ) * 84
 }
 
-function binaryInBinaryLeft() {
+function math() {
   return (
     // Reason for 42
     42

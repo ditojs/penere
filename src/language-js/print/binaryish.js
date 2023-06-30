@@ -7,6 +7,7 @@ import {
   group,
   indent,
   align,
+  ifBreak,
   indentIfBreak,
 } from "../../document/builders.js";
 import { cleanDoc, getDocParts } from "../../document/utils.js";
@@ -22,29 +23,64 @@ import {
   isObjectProperty,
   isArrayOrTupleExpression,
   isObjectOrRecordExpression,
+  isCallLikeExpression,
+  getPrecedence,
 } from "../utils/index.js";
+import hasNewlineInRange from "../../utils/has-newline-in-range.js";
+import needsParens from "../needs-parens.js";
+import { locStart, locEnd } from "../loc.js";
+import { isParenthesized } from "../utils/is-parenthesized.js";
+import { isLiteral } from "./literal.js";
 
 /** @typedef {import("../../document/builders.js").Doc} Doc */
 
 let uid = 0;
-function printBinaryishExpression(path, options, print) {
+function printBinaryishExpression(path, options, print, args) {
   const { node, parent, grandparent, key } = path;
   const isInsideParenthesis =
     key !== "body" &&
     (parent.type === "IfStatement" ||
       parent.type === "WhileStatement" ||
       parent.type === "SwitchStatement" ||
-      parent.type === "DoWhileStatement");
+      parent.type === "DoWhileStatement" ||
+      // MOD: Respect breaks in assignments, variable declarations, returns and
+      // calls.
+      parent.type === "AssignmentExpression" ||
+      parent.type === "VariableDeclarator" ||
+      parent.type === "ReturnStatement" ||
+      isCallExpression(parent));
   const isHackPipeline =
     node.operator === "|>" && path.root.extra?.__isUsingHackPipeline;
 
-  const parts = printBinaryishExpressions(
-    path,
-    print,
-    options,
-    /* isNested */ false,
-    isInsideParenthesis
-  );
+  const breakLevels = args?.breakLevels ?? {};
+  const level = args?.level ?? 0;
+  const prerun = args?.prerun ?? false;
+  const isRoot = args?.level === undefined;
+  const isFlattened =
+    isRoot ||
+    (isBinaryish(parent) &&
+      !isParenthesized(node, options) &&
+      shouldFlatten(parent.operator, node.operator));
+
+  const callPrint = (prerun) =>
+    printBinaryishExpressions(
+      path,
+      print,
+      options,
+      /* isNested */ false,
+      isInsideParenthesis,
+      isFlattened ? breakLevels : { ...breakLevels },
+      isFlattened ? level : level + 1,
+      prerun,
+      args
+    );
+
+  if (isRoot) {
+    // Call twice, once to set up all values of `breakLevels`, the second time
+    // to actually print the document.
+    callPrint(true);
+  }
+  const parts = callPrint(prerun);
 
   //   if (
   //     this.hasPlugin("dynamicImports") && this.lookahead().type === tt.parenLeft
@@ -56,7 +92,7 @@ function printBinaryishExpression(path, options, print) {
   //     this.hasPlugin("dynamicImports") &&
   //     this.lookahead().type === tt.parenLeft
   //   ) {
-  if (isInsideParenthesis) {
+  if (isInsideParenthesis && !isCallExpression(parent)) {
     return parts;
   }
 
@@ -75,9 +111,31 @@ function printBinaryishExpression(path, options, print) {
   if (
     (isCallExpression(parent) && parent.callee === node) ||
     parent.type === "UnaryExpression" ||
-    (isMemberExpression(parent) && !parent.computed)
+    (isMemberExpression(parent) && !parent.computed) ||
+    // MOD: Break between parens of binaryish expressions as well unless they
+    // are of the same type and precedence does not dictate otherwise. But if
+    // the original code has parens, preserve those.
+    (parent.type === "ConditionalExpression" && node === parent.test) ||
+    (isBinaryish(parent) &&
+      (parent.type !== node.type ||
+        isParenthesized(node, options) ||
+        getPrecedence(parent.operator) > getPrecedence(node.operator) ||
+        (node.type === "BinaryExpression" &&
+          getPrecedence(parent.operator) < getPrecedence(node.operator) &&
+          shouldBreakBinaryish(node, options) &&
+          !shouldBreakBinaryish(parent, options))))
   ) {
-    return group([indent([softline, ...parts]), softline]);
+    // MOD: Enforce parens when going multiline, but do respect the result of
+    // `needsParens` to prevent double-parens.
+    const addParens =
+      (isBinaryish(parent) || parent.type === "ConditionalExpression") &&
+      !needsParens(path, options);
+    const indented = [indent([softline, ...parts]), softline];
+    return group(
+      addParens //
+        ? [ifBreak("("), ...indented, ifBreak(")")]
+        : indented
+    );
   }
 
   // Avoid indenting sub-expressions in some cases where the first sub-expression is already
@@ -95,10 +153,12 @@ function printBinaryishExpression(path, options, print) {
           grandparent.body.length === 1))) ||
     (node === parent.body && parent.type === "ArrowFunctionExpression") ||
     (node !== parent.body && parent.type === "ForStatement") ||
-    (parent.type === "ConditionalExpression" &&
-      grandparent.type !== "ReturnStatement" &&
-      grandparent.type !== "ThrowStatement" &&
-      !isCallExpression(grandparent)) ||
+    parent.type === "ConditionalExpression" ||
+    // MOD: Never indent binaryish expressions inside conditional expressions.
+    // &&
+    // grandparent.type !== "ReturnStatement" &&
+    // grandparent.type !== "ThrowStatement" &&
+    //!isCallExpression(grandparent)
     parent.type === "TemplateLiteral";
 
   const shouldIndentIfInlining =
@@ -115,8 +175,10 @@ function printBinaryishExpression(path, options, print) {
 
   if (
     shouldNotIndent ||
-    (shouldInlineLogicalExpression(node) && !samePrecedenceSubExpression) ||
-    (!shouldInlineLogicalExpression(node) && shouldIndentIfInlining)
+    (shouldInlineLogicalExpression(node, parent, options) &&
+      !samePrecedenceSubExpression) ||
+    (!shouldInlineLogicalExpression(node, parent, options) &&
+      shouldIndentIfInlining)
   ) {
     return group(parts);
   }
@@ -154,13 +216,17 @@ function printBinaryishExpression(path, options, print) {
   const groupId = Symbol("logicalChain-" + ++uid);
 
   const chain = group(
-    [
-      // Don't include the initial expression in the indentation
-      // level. The first item is guaranteed to be the first
-      // left-most expression.
-      ...headParts,
-      indent(rest),
-    ],
+    // MOD: Don't indent if the parent is binaryish or a call expression, since
+    // we now break between parens of logical expressions as well.
+    isBinaryish(parent) || isCallLikeExpression(parent)
+      ? parts
+      : [
+          // Don't include the initial expression in the indentation
+          // level. The first item is guaranteed to be the first
+          // left-most expression.
+          ...headParts,
+          indent(rest),
+        ],
     { id: groupId }
   );
 
@@ -185,13 +251,37 @@ function printBinaryishExpressions(
   print,
   options,
   isNested,
-  isInsideParenthesis
+  isInsideParenthesis,
+  breakLevels,
+  level,
+  prerun,
+  args
 ) {
   const { node } = path;
 
+  const shouldBreakNode =
+    isBinaryish(node) && shouldBreakBinaryish(node, options);
+  breakLevels[level] ||= shouldBreakNode;
+  const enforceBreak = breakLevels[level];
+
+  const wrapParts = (parts) => {
+    if (!prerun && enforceBreak && parts.length > 0) {
+      // Move the comment inside the parentheses.
+      const printed = cleanDoc(printComments(path, parts, options));
+      const printedParts =
+        Array.isArray(printed) || printed.type === DOC_TYPE_FILL
+          ? getDocParts(printed)
+          : [printed];
+      // eslint-disable-next-line prettier-internal-rules/no-node-comments
+      delete node.comments;
+      return [group(printedParts, { shouldBreak: true })];
+    }
+    return parts;
+  };
+
   // Simply print the node normally.
   if (!isBinaryish(node)) {
-    return [group(print())];
+    return wrapParts([group(print())]);
   }
 
   /** @type{Doc[]} */
@@ -217,15 +307,30 @@ function printBinaryishExpressions(
           print,
           options,
           /* isNested */ true,
-          isInsideParenthesis
+          isInsideParenthesis,
+          breakLevels,
+          level,
+          prerun,
+          args
         ),
       "left"
     );
   } else {
-    parts.push(group(print("left")));
+    parts.push(
+      wrapParts([
+        group(
+          print("left", {
+            breakLevels,
+            level,
+            prerun,
+          })
+        ),
+      ])
+    );
   }
 
-  const shouldInline = shouldInlineLogicalExpression(node);
+  const shouldInline =
+    !enforceBreak && shouldInlineLogicalExpression(node, path.parent, options);
   const lineBeforeOperator =
     (node.operator === "|>" ||
       node.type === "NGPipeExpression" ||
@@ -250,23 +355,36 @@ function printBinaryishExpressions(
   /** @type {Doc} */
   let right;
   if (shouldInline) {
-    right = [operator, " ", print("right"), rightSuffix];
+    const rightContent = print("right", {
+      breakLevels,
+      level,
+      prerun,
+    });
+    right = [operator, " ", rightContent, rightSuffix];
   } else {
     const isHackPipeline =
       operator === "|>" && path.root.extra?.__isUsingHackPipeline;
     const rightContent = isHackPipeline
       ? path.call(
-          (left) =>
+          (right) =>
             printBinaryishExpressions(
-              left,
+              right,
               print,
               options,
               /* isNested */ true,
-              isInsideParenthesis
+              isInsideParenthesis,
+              breakLevels,
+              level,
+              prerun,
+              args
             ),
           "right"
         )
-      : print("right");
+      : print("right", {
+          breakLevels,
+          level,
+          prerun,
+        });
     right = [
       lineBeforeOperator ? line : "",
       operator,
@@ -279,13 +397,13 @@ function printBinaryishExpressions(
   // If there's only a single binary expression, we want to create a group
   // in order to avoid having a small right part like -1 be on its own line.
   const { parent } = path;
-  const shouldBreak = hasComment(
-    node.left,
-    CommentCheckFlags.Trailing | CommentCheckFlags.Line
-  );
+  // MOD: Take `enforceBreak` into account when deciding whether to group.
+  const shouldBreak =
+    enforceBreak ||
+    hasComment(node.left, CommentCheckFlags.Trailing | CommentCheckFlags.Line);
   const shouldGroup =
     shouldBreak ||
-    (!(isInsideParenthesis && node.type === "LogicalExpression") &&
+    (!(isInsideParenthesis && isBinaryish(node)) &&
       parent.type !== node.type &&
       node.left.type !== node.type &&
       node.right.type !== node.type);
@@ -311,19 +429,79 @@ function printBinaryishExpressions(
   return parts;
 }
 
-function shouldInlineLogicalExpression(node) {
-  if (node.type !== "LogicalExpression") {
+// MOD: Preserve breaks in binaryish expressions:
+// - Logical Expressions: If the expression is parenthesized, then preserve the
+//   break between the '(' and the left expression. If that's not the case, and
+//   also for Binary Expressions:
+// - Preserve breaks between the left and right expressions.
+function shouldBreakBinaryish(node, options) {
+  return (
+    // Exclude the empty literal nodes that are pulled back up in the printer.
+    !isEmptyLiteralNode(node.right) &&
+    hasNewlineInRange(
+      options.originalText,
+      locEnd(node.left),
+      locStart(node.right)
+    )
+  );
+}
+
+function isLiteralNode(node) {
+  return isLiteral(node) || node.type === "TemplateLiteral";
+}
+
+function isEmptyLiteralNode(node) {
+  return (
+    (isLiteralNode(node) && node.value === "") ||
+    (node.type === "ObjectExpression" && node.properties.length === 0) ||
+    (node.type === "ArrayExpression" && node.elements.length === 0)
+  );
+}
+
+function shouldInlineLogicalExpression(node, parent, options) {
+  if (
+    node.type !== "LogicalExpression" &&
+    !(
+      node.type === "BinaryExpression" &&
+      parent.type !== "ConditionalExpression"
+    )
+  ) {
     return false;
   }
 
+  // MOD: Don't inline arrays and objects in binary expressions that will break.
+  if (shouldBreakBinaryish(node, options)) {
+    return false;
+  }
+
+  // MOD: Inline literals.
+  if (isLiteralNode(node.right)) {
+    return true;
+  }
+
   if (
-    isObjectOrRecordExpression(node.right) &&
-    node.right.properties.length > 0
+    isObjectOrRecordExpression(node.right)
+    // MOD: Allow inlining of empty objects.
+    // && node.right.properties.length > 0
   ) {
     return true;
   }
 
-  if (isArrayOrTupleExpression(node.right) && node.right.elements.length > 0) {
+  if (
+    isArrayOrTupleExpression(node.right)
+    // MOD: Allow inlining of empty arrays.
+    // && node.right.elements.length > 0
+  ) {
+    return true;
+  }
+
+  // MOD: Allow inlining of object and array member expressions with simple
+  // identifiers.
+  if (
+    node.right.type === "MemberExpression" &&
+    node.right.property.type === "Identifier" &&
+    ["ObjectExpression", "ArrayExpression"].includes(node.right.object.type)
+  ) {
     return true;
   }
 
