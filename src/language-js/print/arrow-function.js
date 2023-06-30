@@ -140,6 +140,16 @@ function printArrowFunction(path, options, print, args = {}) {
     shouldPutBodyOnSameLine,
   });
 
+  // MOD: Wrap binaryish multi-line bodies in parens
+  if (isBinaryish(functionBody)) {
+    bodyDoc = group([
+      ifBreak(" ("),
+      bodyDoc,
+      softline,
+      ifBreak(")"),
+    ]);
+  }
+
   return group([
     group(
       shouldIndentSignatures

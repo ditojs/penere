@@ -1,4 +1,4 @@
-import { group, indent, line } from "../../document/builders.js";
+import { group, indent, indentIfBreak, line, softline } from "../../document/builders.js";
 import { inheritLabel } from "../../document/utils.js";
 import printIgnored from "../../main/print-ignored.js";
 import isNonEmptyArray from "../../utils/is-non-empty-array.js";
@@ -90,11 +90,21 @@ function print(path, options, print, args) {
     return doc;
   }
 
+  const groupId = Symbol("conditional");
   return inheritLabel(doc, (doc) => [
     needsSemi ? ";" : "",
     needsParens ? "(" : "",
     needsParens && isClassExpression && hasDecorators
       ? [indent([line, decoratorsDoc, doc]), line]
+      : // MOD: Indent conditional expressions that need parens
+      needsParens && node.type === "ConditionalExpression"
+      ? group(
+          [
+            indentIfBreak([softline, decoratorsDoc, doc], { groupId }),
+            softline,
+          ],
+          { id: groupId }
+        )
       : [decoratorsDoc, doc],
     needsParens ? ")" : "",
   ]);
