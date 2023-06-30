@@ -15,3 +15,10 @@ export type ModelHooks2<$Model extends Model = Model> = {
     | 'delete'
   }`]?: ModelHookFunction<$Model>;
 };
+
+export type SelectModelKeys<T> = Exclude<
+  objection.NonFunctionPropertyNames<T>,
+  | 'QueryBuilderType'
+  | 'foreignKeyId'
+  | `$${string}`
+>

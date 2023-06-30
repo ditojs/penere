@@ -24,6 +24,13 @@ export type ModelHooks2<$Model extends Model = Model> = {
   }\`]?: ModelHookFunction<$Model>;
 };
 
+export type SelectModelKeys<T> = Exclude<
+  objection.NonFunctionPropertyNames<T>,
+  | 'QueryBuilderType'
+  | 'foreignKeyId'
+  | \`$\${string}\`
+>
+
 =====================================output=====================================
 export type ModelHooks1<$Model extends Model = Model> = {
   [key in \`\${"before" | "after"}:\${
@@ -42,6 +49,13 @@ export type ModelHooks2<$Model extends Model = Model> = {
     | "delete"
   }\`]?: ModelHookFunction<$Model>;
 };
+
+export type SelectModelKeys<T> = Exclude<
+  objection.NonFunctionPropertyNames<T>,
+  | "QueryBuilderType"
+  | "foreignKeyId"
+  | \`$\${string}\`
+>;
 
 ================================================================================
 `;
