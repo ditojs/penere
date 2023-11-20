@@ -367,7 +367,9 @@ function needsParens(path, options) {
           return !isBinaryCastExpression(node);
 
         case "ConditionalExpression":
-          return isBinaryCastExpression(node) || isNullishCoalescing(node);
+          // MOD: Don't enforce parentheses around nullish coalescing
+          // expressions inside ternary expressions:
+          return isBinaryCastExpression(node); // || isNullishCoalescing(node);
 
         case "CallExpression":
         case "NewExpression":
