@@ -1,5 +1,10 @@
 # Penere
 
+> [!IMPORTANT]
+> Penere is now a plugin for stock Prettier:
+> [prettier-plugin-penere](https://github.com/ditojs/prettier-plugin-penere).
+> This fork is no longer maintained.
+
 A code formatter based on [Prettier](https://prettier.io), but designed to be less opinionated and a bit more expressive.
 
 ## Intro
